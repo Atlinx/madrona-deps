@@ -199,11 +199,59 @@ if (MADRONA_USE_BUNDLED)
             "${DEP_ROOT}/metal-cpp-extensions/include"
         )
     endif ()
-else() # FIXME: The non-bundled path is not currently maintained, will not work.
+else() 
+    # NON-BUNDLED BUILD PATH ASSUMES SYSTEM INSTALLATIONS OF DEPENDENCIES
+    
+    # Setup SDL2 and Embree
+
     if (MADRONA_LINUX)
         find_package(SDL2 REQUIRED)
         find_package(embree REQUIRED)
     endif()
+
+    # Setup DXC
+
+    if (MADRONA_WINDOWS)
+        find_file(MADRONA_SYSTEM_LIBDXC dxcompiler.dll REQUIRED)
+        find_library(MADRONA_SYSTEM_IMPLIBDXC dxcompiler.lib REQUIRED)
+    else()
+        find_library(MADRONA_SYSTEM_LIBDXC NAMES dxcompiler libdxcompiler.so libdxcompiler.dylib REQUIRED)
+    endif()
+
+    find_path(MADRONA_DXC_INCLUDE_DIR 
+        NAMES dxc/dxcapi.h
+        PATHS /usr/include/dxc /usr/local/include/dxc
+        DOC "Path to DXC headers"
+    )
+
+    cmake_path(GET MADRONA_SYSTEM_LIBDXC FILENAME MADRONA_LIBDXC_NAME)
+    set(MADRONA_LIBDXC_BUILDLOC "${DEP_LIB_OUT_DIR}/${MADRONA_LIBDXC_NAME}")
+
+    add_custom_command(
+        OUTPUT ${MADRONA_LIBDXC_BUILDLOC}
+        DEPENDS ${MADRONA_SYSTEM_LIBDXC}
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${MADRONA_SYSTEM_LIBDXC} ${MADRONA_LIBDXC_BUILDLOC}
+    )
+
+    add_custom_target(madrona_libdxc_shlib DEPENDS ${MADRONA_LIBDXC_BUILDLOC})
+
+    add_library(madrona_dxcompiler SHARED IMPORTED GLOBAL)
+    add_dependencies(madrona_dxcompiler madrona_libdxc_shlib)
+    set_target_properties(madrona_dxcompiler PROPERTIES 
+        IMPORTED_LOCATION ${MADRONA_LIBDXC_BUILDLOC}
+    )
+
+    if (MADRONA_WINDOWS)
+        set_target_properties(madrona_dxcompiler PROPERTIES 
+            IMPORTED_IMPLIB ${MADRONA_SYSTEM_IMPLIBDXC}
+        )
+    endif()
+
+    target_include_directories(madrona_dxcompiler SYSTEM INTERFACE
+        "${MADRONA_DXC_INCLUDE_DIR}"
+    )
+
+    # Setup Vulkan
 
     if (MADRONA_LINUX OR MADRONA_WINDOWS)
         find_package(Vulkan REQUIRED)
